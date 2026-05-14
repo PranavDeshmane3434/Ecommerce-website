@@ -1,0 +1,310 @@
+Here’s what each step is doing in your AWS EC2 secure file-sharing setup.
+
+You are creating a secure connection flow like this:
+
+**Laptop → Instance-A → Instance-B**
+
+* Instance-A has a **public IP** (internet accessible)
+* Instance-B has only a **private IP** (internal AWS network only)
+* SCP is used for secure file transfer over SSH
+
+---
+
+# Step-by-Step Explanation
+
+## 1. Go to folder where `.pem` key exists
+
+```bash
+cd Downloads
+```
+
+Your EC2 private key file (`A.pem`) is stored in the Downloads folder.
+
+The terminal must be in the same folder so SSH can find the key.
+
+---
+
+## 2. Secure the key permissions
+
+```bash
+chmod 400 A.pem
+```
+
+### Meaning of `400`
+
+* Owner: read only
+* Others: no access
+
+SSH refuses to use keys that are publicly accessible because it’s insecure.
+
+Without this step, you may get:
+
+```bash
+Permissions 0644 for 'A.pem' are too open
+```
+
+---
+
+## 3. Connect from laptop → Instance-A
+
+```bash
+ssh -i A.pem ec2-user@<PUBLIC-IP-OF-A>
+```
+
+### Breakdown
+
+* `ssh` → Secure Shell connection
+* `-i A.pem` → use this private key
+* `ec2-user` → default Amazon Linux username
+* `<PUBLIC-IP-OF-A>` → public internet IP of Instance-A
+
+Now your laptop securely connects to the EC2 machine.
+
+---
+
+## 4. Exit back to laptop
+
+```bash
+exit
+```
+
+You temporarily leave Instance-A because you now want to copy the key into it.
+
+---
+
+## 5. Copy key from laptop → Instance-A
+
+```bash
+scp -i A.pem A.pem ec2-user@<PUBLIC-IP-OF-A>:/home/ec2-user/
+```
+
+### Why?
+
+Instance-A needs the key so it can connect to Instance-B.
+
+### Breakdown
+
+* `scp` = secure copy
+* First `A.pem` = source file on laptop
+* `/home/ec2-user/` = destination inside Instance-A
+
+Now the key exists inside Instance-A.
+
+---
+
+## 6. Login again to Instance-A
+
+```bash
+ssh -i A.pem ec2-user@<PUBLIC-IP-OF-A>
+```
+
+You reconnect to Instance-A.
+
+---
+
+## 7. Secure key permissions inside Instance-A
+
+```bash
+chmod 400 A.pem
+```
+
+Same security rule applies inside the EC2 machine.
+
+Without this, SSH inside Instance-A may reject the key.
+
+---
+
+## 8. Connect Instance-A → Instance-B using private IP
+
+```bash
+ssh -i A.pem ec2-user@<PRIVATE-IP-OF-B>
+```
+
+This is the important internal AWS communication step.
+
+### Why private IP?
+
+Because both EC2 instances are inside the same VPC/subnet/security group network.
+
+Private IP communication:
+
+* Faster
+* More secure
+* No internet exposure
+* No public IP needed on Instance-B
+
+---
+
+## First-time SSH message
+
+You’ll see:
+
+```bash
+Are you sure you want to continue connecting (yes/no)?
+```
+
+Type:
+
+```bash
+yes
+```
+
+SSH stores the server fingerprint in:
+
+```bash
+~/.ssh/known_hosts
+```
+
+This prevents man-in-the-middle attacks later.
+
+---
+
+## 9. Return to Instance-A
+
+```bash
+exit
+```
+
+You leave Instance-B and go back to Instance-A.
+
+---
+
+## 10. Create a sample file
+
+```bash
+echo "Hello Secure File Sharing" > file.txt
+```
+
+### What happens?
+
+Creates a file named `file.txt` containing:
+
+```text
+Hello Secure File Sharing
+```
+
+`>` redirects output into the file.
+
+---
+
+## 11. Transfer file from A → B using SCP
+
+```bash
+scp -i A.pem file.txt ec2-user@<PRIVATE-IP-OF-B>:/home/ec2-user/
+```
+
+This securely copies the file to Instance-B.
+
+### Breakdown
+
+* `file.txt` → source file
+* `ec2-user@PRIVATE-IP` → destination machine
+* `/home/ec2-user/` → destination folder
+
+### Internally
+
+SCP uses:
+
+* SSH encryption
+* Port 22
+* Secure authentication using `.pem`
+
+---
+
+# Network Flow
+
+```text
+Laptop
+   |
+   | SSH
+   v
+Instance-A (Public IP)
+   |
+   | Private VPC Network
+   v
+Instance-B (Private IP)
+```
+
+---
+
+## 12. Login to Instance-B
+
+```bash
+ssh -i A.pem ec2-user@<PRIVATE-IP-OF-B>
+```
+
+You enter the receiving machine to verify the transfer.
+
+---
+
+## 13. Verify transferred file
+
+```bash
+cat file.txt
+```
+
+`cat` displays file contents.
+
+Expected output:
+
+```text
+Hello Secure File Sharing
+```
+
+This confirms successful transfer.
+
+---
+
+## 14. Exit all sessions
+
+```bash
+exit
+exit
+```
+
+* First `exit` → leaves Instance-B
+* Second `exit` → leaves Instance-A
+* Returns to your laptop terminal
+
+---
+
+# Important AWS Requirements
+
+For this to work:
+
+## Security Group Rules
+
+### Instance-B Security Group
+
+Must allow:
+
+| Type | Port | Source                                              |
+| ---- | ---- | --------------------------------------------------- |
+| SSH  | 22   | Security Group of Instance-A OR private subnet CIDR |
+
+---
+
+# Why this method is used
+
+This setup is common because:
+
+* Database servers/private servers should not have public IPs
+* Only a bastion/jump server (Instance-A) is exposed publicly
+* Internal machines remain protected
+
+This architecture is called:
+
+* **Bastion Host Architecture**
+* **Jump Server Architecture**
+
+---
+
+# Commands Used Summary
+
+| Command     | Purpose                |
+| ----------- | ---------------------- |
+| `ssh`       | Remote login           |
+| `scp`       | Secure file transfer   |
+| `chmod 400` | Secure key permissions |
+| `echo`      | Create file            |
+| `cat`       | View file              |
